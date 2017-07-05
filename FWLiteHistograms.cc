@@ -16,13 +16,17 @@
 
 #include "DataFormats/MuonReco/interface/Muon.h"
 #include "DataFormats/TrackReco/interface/Track.h"
-#include "DataFormats/VertexReco/interface/Vertex.h"
 #include "DataFormats/JetReco/interface/Jet.h"
 #include "DataFormats/METReco/interface/MET.h"
 #include "DataFormats/EgammaCandidates/interface/Electron.h"
 #include "DataFormats/EgammaCandidates/interface/GsfElectron.h"
 #include "DataFormats/EgammaCandidates/interface/GsfElectronFwd.h"
 #include "DataFormats/EgammaCandidates/interface/Photon.h"
+#include "DataFormats/BeamSpot/interface/BeamSpot.h"
+#include "DataFormats/VertexReco/interface/Vertex.h"
+#include "DataFormats/VertexReco/interface/VertexFwd.h"
+#include "RecoTauTag/RecoTau/interface/RecoTauCommonUtilities.h"
+#include "DataFormats/TauReco/interface/PFTauFwd.h"
 
 #include "DataFormats/PatCandidates/interface/Jet.h"
 #include "DataFormats/PatCandidates/interface/Electron.h"
@@ -32,7 +36,8 @@
 #include "PhysicsTools/FWLite/interface/TFileService.h"
 #include "PhysicsTools/FWLite/interface/CommandLineParser.h"
 
-
+#include "TrackingTools/Records/interface/TransientTrackRecord.h"
+#include <TrackingTools/TransientTrack/interface/TransientTrackBuilder.h>
 int main(int argc, char* argv[]) 
 {
   // define what muon you are using; this is necessary as FWLite is not 
@@ -91,10 +96,13 @@ int main(int argc, char* argv[])
   TH1F* photonEta_ = dir.make<TH1F>("photonEta" , "eta" ,   100,  -3.,   3.);
   TH1F* photonPhi_ = dir.make<TH1F>("photonPhi" , "phi" ,   100,  -5.,   5.);
 
+  //create the output file 
   std:: ofstream file("file.txt");
-
+ 
   // loop the events
   int ievt=0;  
+  file  <<"{ " <<std::endl;
+
   for(unsigned int iFile=0; iFile<inputFiles_.size(); ++iFile){
     // open input file (can be located on castor)
     TFile* inFile = TFile::Open(inputFiles_[iFile].c_str());
@@ -108,13 +116,18 @@ int main(int argc, char* argv[])
       //  * after the loop close the input file
       // ----------------------------------------------------------------------      
       fwlite::Event ev(inFile);
+
       for(ev.toBegin(); !ev.atEnd(); ++ev, ++ievt){
 	edm::EventBase const & event = ev;
+	
+
 	// break loop if maximal number of events is reached 
 //	if(maxEvents_>0 ? ievt+1>maxEvents_ : false) break;
 	// simple event counter
 //	if(outputEvery_!=0 ? (ievt>0 && ievt%outputEvery_==0) : false) 
-	  std::cout << "  processing event: " << ievt << std::endl;
+	std::cout << "  processing event: " << ievt << std::endl;
+
+	file  <<"<| " <<std::endl;
 
 	// Handle to the object collection
 	edm::Handle<std::vector<reco::Muon> > muons;
@@ -135,8 +148,14 @@ int main(int argc, char* argv[])
         edm::Handle<std::vector<reco::Vertex> > vertices;
         event.getByLabel(std::string("offlinePrimaryVertices"), vertices);
 
+	edm::Handle<std::vector<reco::PFTau> > taus;
+        event.getByLabel(std::string("hpsPFTauProducer"), taus);
 
-file  <<"EventNumber : " << ievt <<std::endl;	
+
+	file  <<" \"Particles\" -> " <<std::endl;  
+	file  <<"  <|" <<std::endl;
+	file  <<"  \"Muons\"  -> {" <<std::endl;
+
 	// loop object collection and fill histograms
 	for(std::vector<reco::Muon>::const_iterator mu1=muons->begin(); mu1!=muons->end(); ++mu1){
     	  muonEt_ ->Fill( mu1->et () );
@@ -146,9 +165,13 @@ file  <<"EventNumber : " << ievt <<std::endl;
 	  muonEta_->Fill( mu1->eta() );
 	  muonPhi_->Fill( mu1->phi() );	  
 
-	  file  <<"Object : Muon, TransverseMomentum : " << mu1->pt() << ", Momentum  : { " << mu1->px() << " , " << mu1->py() << " , " << mu1->pz() << " } , TransverseEnergy :  " << mu1->et() << ", Pseudorapidity : "<< mu1->eta()<<", AzimuthalAngle : " << mu1->phi()  << ", PolarAngle : "<<mu1->theta() <<std::endl;
+	  //write information about Muons
+	  file  <<" <| \"TransverseMomentum\" -> " << mu1->pt() << ", \"Energy\"  -> " << mu1->energy() << ", \"Pseudorapidity\" -> "<< mu1->eta()<<", \"AzimuthalAngle\" -> " << mu1->phi()  << ", \"Charge\" -> " << mu1->charge()  << ", \"Mass\" -> "<< mu1->mass() << " |>, "<< std::endl;
+	   
+	 
 	  if( mu1->pt()>20 && fabs(mu1->eta())<2.1 ){
 	    for(std::vector<reco::Muon>::const_iterator mu2=muons->begin(); mu2!=muons->end(); ++mu2){
+
 	      if(mu2>mu1){ // prevent double conting
 		if( mu1->charge()*mu2->charge()<0 ){ // check only muon pairs of unequal charge 
 		  if( mu2->pt()>20 && fabs(mu2->eta())<2.1 ){
@@ -159,44 +182,112 @@ file  <<"EventNumber : " << ievt <<std::endl;
 	    }
 	  }
 	}
-       
-        for(std::vector<reco::GsfElectron>::const_iterator el1=electrons->begin(); el1!=electrons->end(); ++el1){
-	  file  <<"Object : Electron, TransverseMomentum : " << el1->pt() << ", Momentum  : { " << el1->px() << " , " << el1->py() << " , " << el1->pz() << " } , TransverseEnergy :  " << el1->et() << ", Pseudorapidity : "<< el1->eta()<<", AzimuthalAngle : " << el1->phi()  << ", PolarAngle : "<<el1->theta() <<std::endl;
+
+	file  <<" }, " <<std::endl;
+        file  <<" \"Electrons\"  -> {" <<std::endl;
+
+	for(std::vector<reco::GsfElectron>::const_iterator el1=electrons->begin(); el1!=electrons->end(); ++el1){
+	 
+	  //write information about Electrons
+          file  <<" <| \"TransverseMomentum\" -> " << el1->pt() << ", \"Energy\"  -> " << el1->energy() << ", \"Pseudorapidity\" -> "<< el1->eta()<<", \"AzimuthalAngle\" -> " << el1->phi()  << ", \"Charge\" -> " << el1->charge()  << ", \"Mass\" -> "<< el1->mass() << " |>, "<< std::endl;
           electronPt_ ->Fill( el1->pt () );
           electronEta_->Fill( el1->eta() );
           electronPhi_->Fill( el1->phi() );
 	}
        
+	file  <<" }, " <<std::endl;
+	file  <<" \"Jets\"  -> {" <<std::endl;
+
         for(std::vector<reco::PFJet>::const_iterator jet1=jets->begin(); jet1!=jets->end(); ++jet1){
-	  file  <<"Object : Jet, TransverseMomentum : " << jet1->pt() << ", Momentum  : { " << jet1->px() << " , " << jet1->py() << " , " << jet1->pz() << " } , TransverseEnergy :  " << jet1->et() << ", Pseudorapidity : "<< jet1->eta()<<", AzimuthalAngle : " << jet1->phi()  << ", PolarAngle : "<<jet1->theta() <<std::endl;
+	  //write information about Jets
+          file  <<" <| \"TransverseMomentum\" -> " << jet1->pt() << ", \"Energy\"  -> " << jet1->energy() << ", \"Pseudorapidity\" -> "<< jet1->eta()<<",\"AzimuthalAngle\" -> " << jet1->phi()  << ", \"Charge\" -> Missing[\"NotAvailable\"], \"Mass\" -> "<< jet1->mass() << " |>, "<< std::endl;
 	  jetPt_ ->Fill( jet1->pt () );
           jetEta_->Fill( jet1->eta() );
           jetPhi_->Fill( jet1->phi() );
         }
 
+	file  <<" }, " <<std::endl;
+        file  <<" \"MissingTransverseEnergy\"  -> {" <<std::endl;
+
 	for(std::vector<reco::PFMET>::const_iterator met1=mets->begin(); met1!=mets->end(); ++met1){
-	  file  <<"Object : MET, TransverseMomentum : " << met1->pt() << ", Momentum  : { " << met1->px() << " , " << met1->py() << " , " << met1->pz() << " } , TransverseEnergy :  " << met1->et() << ", Pseudorapidity : "<< met1->eta()<<", AzimuthalAngle : " << met1->phi()  << ", PolarAngle : "<<met1->theta() <<std::endl;
+
+	  //write information about Missing Transverse Energy 
+          file  <<" <| \"TransverseMomentum\" -> " << met1->pt() << ", \"Energy\"  -> " << met1->energy() << ", \"Pseudorapidity\" ->  Missing[\"NotApplicable\"], \"AzimuthalAngle\" -> " << met1->phi()  << ", \"Charge\" -> " << met1->charge()  << ", \"Mass\" -> "<< met1->mass() << " |>, "<< std::endl;
           metPt_ ->Fill( met1->pt () );
           metEta_->Fill( met1->eta() );
           metPhi_->Fill( met1->phi() );
         }
 
+        file  <<" }, " <<std::endl;
+        file  <<" \"Photons\"  -> {" <<std::endl;
+
         for(std::vector<reco::Photon>::const_iterator ph1=photons->begin(); ph1!=photons->end(); ++ph1){
-	  file  <<"Object : Photon, TransverseMomentum : " << ph1->pt() << ", Momentum  : { " << ph1->px() << " , " << ph1->py() << " , " << ph1->pz() << " } , TransverseEnergy :  " << ph1->et() << ", Pseudorapidity : "<< ph1->eta()<<", AzimuthalAngle : " << ph1->phi()  << ", PolarAngle : "<<ph1->theta() <<std::endl;
+
+	  //write information about Photon
+          file  <<" <| \"TransverseMomentum\" -> " << ph1->pt() << ", \"Energy\"  -> " << ph1->energy() << ", \"Pseudorapidity\" -> "<< ph1->eta()<<",\
+ \"AzimuthalAngle\" -> " << ph1->phi()  << ", \"Charge\" -> " << ph1->charge()  << ", \"Mass\" -> "<< ph1->mass() << " |>, "<< std::endl;
 	  photonPt_ ->Fill( ph1->pt () );
           photonEta_->Fill( ph1->eta() );
           photonPhi_->Fill( ph1->phi() );
         }
-	for(std::vector<reco::Vertex>::const_iterator vr1=vertices->begin(); vr1!=vertices->end(); ++vr1){
-	  file  <<"Object : Vertex, Position  : { " << vr1->x() << " , " << vr1->y() << " , " << vr1->z() <<" }" <<std::endl;
-         
-         
-         
+
+	file  <<" }, " <<std::endl;
+	file  <<"|> " <<std::endl;
+
+
+        file  <<" , \"ReconstructedObjects\" ->  " <<std::endl;
+
+
+        file  <<" <|" <<std::endl;
+
+        file  <<"  \"Taus\" -> { " <<std::endl;
+
+        for(std::vector<reco::PFTau>::const_iterator tau1=taus->begin(); tau1!=taus->end(); ++tau1){
+      
+	  //Write information about Taus
+	  file  <<"<| \"TransverseMomentum\" -> " << tau1->pt() << ", \"Energy\"  -> " << tau1->energy() << ", \"Pseudorapidity\" -> "<< tau1->eta()<< " , \"AzimuthalAngle\" -> " << tau1->phi()  << ", \"Charge\" -> " <<tau1->charge()  << ", \"Mass\" -> "<< tau1->mass() << " |>, "<< std::endl;        
+	}
+
+        file  <<" }, " <<std::endl;
+        file  <<"|> " <<std::endl;
+
+        file  <<" , \"Vertices\" ->  " <<std::endl;
+
+
+	file  <<" <|" <<std::endl;
+        file  <<"  \"PrimaryVertex\" -> { " <<std::endl;
+
+	for(std::vector<reco::Vertex>::const_iterator vtx1=vertices->begin(); vtx1!=vertices->end(); ++vtx1){
+	  
+	  //write information about primary vertices
+	  file  <<"<|  \"Position\"  -> { " << vtx1->x() << " , " << vtx1->y() << " , " << vtx1->z() <<" } |>," <<std::endl;
         }
+        file  <<" }, " <<std::endl;
+
+	/*** get beamspot and TransientTrackBuilder from the event/eventSetup ***/
+	edm::Handle<reco::BeamSpot> recoBeamSpotHandle;
+        event.getByLabel(std::string("offlineBeamSpot"), recoBeamSpotHandle);
+	reco::BeamSpot vertexBeamSpot;
+        if ( recoBeamSpotHandle.isValid() )
+          {
+            vertexBeamSpot= *recoBeamSpotHandle;
+
+          } else
+          {
+	    edm::LogInfo("MyAnalyzer")
+              << "No beam spot available from EventSetup \n";
+          }
+        file  <<" \"VertexBeamSpot\"  -> {" <<std::endl;
+	//write information about Vertex Beam Spot
+	file  <<"<|  \"Position\" -> {" << vertexBeamSpot.x0() << ", "<< vertexBeamSpot.y0()<< ", "<< vertexBeamSpot.z0()<<"} |>, } "<<std::endl;
+                                                                                                                                                  
+        file  <<"|> " <<std::endl;
 
 
- 	file  <<"---- " <<std::endl;
+	file  <<" |>, " <<std::endl;
+ 	
       }  
+      file << "}" <<std::endl;
       // close input file
       inFile->Close();
     }
